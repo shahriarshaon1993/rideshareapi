@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers;
 
-use App\Events\TripAccepted;
-use App\Events\TripCreated;
-use App\Events\TripEnded;
-use App\Events\TripLocationUpdated;
-use App\Events\TripStarted;
 use App\Models\Trip;
+use App\Models\Driver;
+use App\Events\TripEnded;
+use App\Events\TripCreated;
+use App\Events\TripStarted;
+use App\Events\TripAccepted;
 use Illuminate\Http\Request;
+use App\Events\TripLocationUpdated;
 
 class TripController extends Controller
 {
@@ -52,14 +53,16 @@ class TripController extends Controller
             'driver_location' => 'required'
         ]);
 
+        $driver = Driver::where('user_id', $request->user()->id)->first();
+
         $trip->update([
-            'driver_id' => $request->user()->id,
+            'driver_id' => $driver->id,
             'driver_location' => $request->driver_location
         ]);
 
         $trip->load('driver.user');
 
-        TripAccepted::dispatch($trip, $request->user());
+        TripAccepted::dispatch($trip, $trip->user);
 
         return $trip;
     }
@@ -105,7 +108,7 @@ class TripController extends Controller
 
         $trip->load('driver.user');
 
-        TripLocationUpdated::dispatch($trip, $request->user());
+        TripLocationUpdated::dispatch($trip, $trip->user);
 
         return $trip;
     }

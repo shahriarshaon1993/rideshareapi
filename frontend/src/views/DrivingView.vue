@@ -2,7 +2,7 @@
     <div class="pt-16">
         <h1 class="text-3xl font-semibold mb-4">{{ title }}</h1>
         <div>
-            <div class="overflow-hidden shadow sm:rounded-md max-w-sm mx-auto text-left">
+            <div class="overflow-hidden shadow sm:rounded-md max-w-sm mx-auto text-left" v-if="!trip.is_complete">
                 <div class="bg-white px-4 py-5 sm:p-6">
                     <div>
                         <GMapMap :zoom="14" :center="location.current.geometry" ref="gMap"
@@ -16,32 +16,42 @@
                     </div>
                 </div>
                 <div class="bg-gray-50 px-4 py-3 text-right sm:px-6">
-                    <button
+                    <button v-if="trip.is_started"
+                        @click="handleCompleteTrip"
                         class="inline-flex justify-center rounded-md border border-transparent bg-black py-2 mr-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-gray-600 focus:outline-none">
                         Complete Trip</button>
-                    <button
+                    <button v-else
+                        @click="handlePassengerPickedUp"
                         class="inline-flex justify-center rounded-md border border-transparent bg-black py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-gray-600 focus:outline-none">
                         Passenger Picked Up</button>
                 </div>
             </div>
-            <!-- <div class="overflow-hidden shadow sm:rounded-md max-w-sm mx-auto text-left">
+            <div class="overflow-hidden shadow sm:rounded-md max-w-sm mx-auto text-left" v-else>
                 <div class="bg-white px-4 py-5 sm:p-6">
                     <Tada />
                 </div>
-            </div> -->
+            </div>
         </div>
     </div>
 </template>
 
 <script setup>
+import Tada from '@/components/Tada.vue'
 import { useLocationStore } from '@/stores/location'
-import { onMounted, ref } from 'vue'
+import { useTripStore } from '@/stores/trip'
+import { ref, onMounted, onUnmounted } from 'vue'
+import http from '@/helpers/http'
+import { useRouter } from 'vue-router'
 
 const location = useLocationStore()
+const trip = useTripStore()
 
 const gMap = ref(null)
+const intervalRef = ref(null)
+const router = useRouter()
 
 const title = ref('Driving to passenger...')
+
 const currentIcon = {
     url: 'https://openmoji.org/data/color/svg/1F698.svg',
     scaledSize: {
@@ -57,6 +67,16 @@ const destinationIcon = {
     }
 }
 
+const brodcastDriverLocation = () => {
+    http().post(`/api/trip/${trip.id}/location`, {
+        driver_location: location.current.geometry
+    })
+        .then((response) => {})
+        .catch((error) => {
+            console.error(error)
+        })
+}
+
 const updateMapBounds = (mapObject) => {
     let originPoint = new google.maps.LatLng(location.current.geometry),
         destinationPoint = new google.maps.LatLng(location.destination.geometry),
@@ -64,19 +84,66 @@ const updateMapBounds = (mapObject) => {
 
     latLngBounds.extend(originPoint)
     latLngBounds.extend(destinationPoint)
-
     mapObject.fitBounds(latLngBounds)
+}
+
+const handlePassengerPickedUp = () => {
+    http().post(`/api/trip/${trip.id}/start`)
+        .then((response) => {
+            title.value = 'Travelling to destination...'
+            location.$patch({
+                destination: {
+                    name: response.data.destination_name,
+                    geometry: response.data.destination
+                }
+            })
+            trip.$patch(response.data)
+        })
+        .catch((error) => {
+            console.error(error)
+        })
+}
+
+const handleCompleteTrip = () => {
+    http().post(`/api/trip/${trip.id}/end`)
+        .then((response) => {
+            title.value = 'Trip completed!'
+
+            trip.$patch(response.data)
+
+            setTimeout(() => {
+                trip.reset()
+                location. reset()
+
+                router.push({
+                    name: 'standby'
+                })
+            }, 3000)
+        })
+        .catch((error) => {
+            console.error(error)
+        })
 }
 
 onMounted(() => {
     gMap.value.$mapPromise.then((mapObject) => {
         updateMapBounds(mapObject)
 
-        setInterval(async () => {
+        intervalRef.value = setInterval(async () => {
             // update the driver's current positon and update map bounds
             await location.updateCurrentLocation()
+
+            // update the driver position in the database
+            brodcastDriverLocation()
+
             updateMapBounds(mapObject)
         }, 5000)
     })
+})
+
+onUnmounted(() => {
+    clearInterval(intervalRef.value)
+
+    intervalRef.value = null
 })
 </script>
